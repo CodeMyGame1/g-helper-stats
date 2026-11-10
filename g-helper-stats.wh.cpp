@@ -2,7 +2,7 @@
 // @id              g-helper-stats
 // @name            G-Helper Stats
 // @description     Surfaces G-Helper info directly in the taskbar!
-// @version         0.1
+// @version         0.1.1
 // @author          CodeMyGame1
 // @github          https://github.com/CodeMyGame1
 // @homepage        https://codemygame.dev
@@ -33,6 +33,19 @@ other relevant system information!
 // DEFINITIONS
 using RunFromWindowThreadProc_t = void(WINAPI*)(void* parameter);
 
+void* CTaskBand_ITaskListWndSite_vftable;
+void* CSecondaryTaskBand_ITaskListWndSite_vftable;
+
+using GetTaskbarHost_t = void*(WINAPI*)(void* pThis, void** result);
+GetTaskbarHost_t CTaskBand_GetTaskbarHost_Original;
+GetTaskbarHost_t CSecondaryTaskBand_GetTaskbarHost_Original;
+
+// Its machine code is read, but never called.
+void* TaskbarHost_FrameHeight_Original;
+
+using Decref_t = void(WINAPI*)(void* pThis);
+Decref_t std__Ref_count_base__Decref_Original;
+
 // Fetches the taskbar process.
 bool HookTaskbarDllSymbols() {
     HMODULE module = LoadLibraryEx(L"taskbar.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
@@ -42,7 +55,32 @@ bool HookTaskbarDllSymbols() {
         return false;
     }
 
-    WindhawkUtils::SYMBOL_HOOK taskbarDllHooks[] = {};
+    WindhawkUtils::SYMBOL_HOOK taskbarDllHooks[] = {
+        {
+            {LR"(const CTaskBand::`vftable'{for `ITaskListWndSite'})"},
+            &CTaskBand_ITaskListWndSite_vftable,
+        },
+        {
+            {LR"(const CSecondaryTaskBand::`vftable'{for `ITaskListWndSite'})"},
+            &CSecondaryTaskBand_ITaskListWndSite_vftable,
+        },
+        {
+            {LR"(public: virtual class std::shared_ptr<class TaskbarHost> __cdecl CTaskBand::GetTaskbarHost(void)const )"},
+            &CTaskBand_GetTaskbarHost_Original,
+        },
+        {
+            {LR"(public: int __cdecl TaskbarHost::FrameHeight(void)const )"},
+            &TaskbarHost_FrameHeight_Original,
+        },
+        {
+            {LR"(public: virtual class std::shared_ptr<class TaskbarHost> __cdecl CSecondaryTaskBand::GetTaskbarHost(void)const )"},
+            &CSecondaryTaskBand_GetTaskbarHost_Original,
+        },
+        {
+            {LR"(public: void __cdecl std::_Ref_count_base::_Decref(void))"},
+            &std__Ref_count_base__Decref_Original,
+        },
+    };
 
     return WindhawkUtils::HookSymbols(module, taskbarDllHooks, ARRAYSIZE(taskbarDllHooks));
 }
@@ -138,6 +176,11 @@ BOOL Wh_ModInit() {
 
 // After initialization.
 void Wh_ModAfterInit() {
+    Wh_Log(L"vftable: %p", CTaskBand_ITaskListWndSite_vftable);
+    Wh_Log(L"GetTaskbarHost: %p", CTaskBand_GetTaskbarHost_Original);
+    Wh_Log(L"FrameHeight: %p", TaskbarHost_FrameHeight_Original);
+    Wh_Log(L"Decref: %p", std__Ref_count_base__Decref_Original);
+
     HWND hTaskbarWnd = FindCurrentProcessTaskbarWnd();
     if (!hTaskbarWnd) return;
 
